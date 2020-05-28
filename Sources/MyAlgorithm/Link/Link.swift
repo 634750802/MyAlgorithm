@@ -14,7 +14,8 @@ public struct Link<T> {
   }
 
   // Call only when want to copy on write.
-  @inlinable public mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) {
+  @discardableResult
+  @inlinable public mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) -> Bool {
     if head != nil {
       if MyAlgorithm.copyIfNeeded(&head) {
         #if DEBUG
@@ -22,11 +23,14 @@ public struct Link<T> {
           recordCopyTimes(self.copyTimesHolder)
         #endif
         self.tail = head?.tail
+        return true
       }
     }
+    return false
   }
 
   @inlinable public mutating func append(_ value: T) {
+    ensureCopyOnWrite()
     if let tail = tail {
       tail.next = Node(value)
       self.tail = tail.next
@@ -37,6 +41,7 @@ public struct Link<T> {
   }
 
   @inlinable public mutating func removeHead() {
+    ensureCopyOnWrite()
     self.head = self.head?.next
     if self.head == nil {
       self.tail = nil
@@ -123,7 +128,7 @@ extension Link: Collection {
           return
         }
         guard let aHead = a?.head, let bHead = b?.head, ObjectIdentifier(aHead) == ObjectIdentifier(bHead) else {
-          fatalError("Two index was not from one link. Note that indices are not shared between links.", file: file, line: line)
+          fatalError("Two index was not from one link. Note that indices are not shared between links. (\(a!), \(b!))", file: file, line: line)
         }
       #endif
     }
@@ -133,8 +138,11 @@ extension Link: Collection {
       guard let l = lhs.currentNode else {
         return false
       }
-      guard let r = rhs.currentNode, ObjectIdentifier(l) != ObjectIdentifier(r) else {
+      guard let r = rhs.currentNode else {
         return true
+      }
+      guard ObjectIdentifier(l) != ObjectIdentifier(r) else {
+        return false
       }
       var i = l
       while let c = i.next {
@@ -162,11 +170,21 @@ extension Link: Collection {
     Index(head: head, currentNode: nil)
   }
   public subscript(position: Index) -> T {
-    position.makeSureHeadAvailable()
-    guard let node = position.currentNode else {
-      fatalError("Index out of range")
+    get {
+      position.makeSureHeadAvailable()
+      guard let node = position.currentNode else {
+        fatalError("Index out of range")
+      }
+      return node.value
     }
-    return node.value
+    set {
+      position.makeSureHeadAvailable()
+      let oldValue = position.currentNode!.value
+      position.currentNode!.value = newValue
+      if ensureCopyOnWrite() {
+        position.currentNode!.value = oldValue
+      }
+    }
   }
 
   public func index(after i: Index) -> Index {
@@ -175,6 +193,91 @@ extension Link: Collection {
       fatalError("Index out of range")
     }
     return Index(head: i.head, currentNode: node.next)
+  }
+
+  public func index(before i: Index) -> Index {
+    #if DEBUG
+      print("[WARN] Avoid to use List.\(#function).")
+    #endif
+    i.makeSureHeadAvailable()
+    guard i.currentNode == nil || ObjectIdentifier(head!) != ObjectIdentifier(i.currentNode!) else {
+      fatalError("Index out of range")
+    }
+    var c = i.head!
+    if i.currentNode == nil {
+      while c.next != nil {
+        c = c.next!
+      }
+    } else {
+      while ObjectIdentifier(c.next!) != ObjectIdentifier(i.currentNode!) {
+        c = c.next!
+      }
+    }
+    return Index(head: head, currentNode: c)
+  }
+}
+
+extension Link: MutableCollection {
+
+  public mutating func partition(by belongsInSecondPartition: (T) throws -> Bool) rethrows -> Index {
+    if isEmpty {
+      return endIndex
+    }
+    ensureCopyOnWrite()
+
+    var firstPartitionHead: Node? = nil
+    var firstPartitionTail: Node? = nil
+    var secondPartitionHead: Node? = nil
+    var secondPartitionTail: Node? = nil
+
+    var current = head
+    while let node = current {
+      if try belongsInSecondPartition(node.value) {
+        if secondPartitionHead == nil {
+          secondPartitionHead = node
+          secondPartitionTail = node
+        } else {
+          secondPartitionTail!.next = node
+          secondPartitionTail = node
+        }
+      } else {
+        if firstPartitionHead == nil {
+          firstPartitionHead = node
+          firstPartitionTail = node
+        } else {
+          firstPartitionTail!.next = node
+          firstPartitionTail = node
+        }
+      }
+      current = node.next
+      node.next = nil
+    }
+    firstPartitionTail?.next = secondPartitionHead
+    head = firstPartitionHead ?? secondPartitionHead!
+    tail = secondPartitionTail ?? firstPartitionTail!
+    return Index(head: head, currentNode: secondPartitionHead)
+  }
+
+  mutating public func swapAt(_ i: Index, _ j: Index) {
+    Index.makeSureFromSameLink(i, j)
+    swap(&i.currentNode!.value, &j.currentNode!.value)
+  }
+
+  public func withContiguousMutableStorageIfAvailable<R>(_ body: (inout UnsafeMutableBufferPointer<T>) throws -> R) rethrows -> R? { nil }
+}
+
+extension Link: Equatable where T: Equatable {
+  public static func ==(lhs: Link<T>, rhs: Link<T>) -> Bool {
+    var li = lhs.startIndex
+    var ri = rhs.startIndex
+    while li != lhs.endIndex && ri != rhs.endIndex {
+      if li.currentNode?.value != ri.currentNode?.value {
+        return false
+      }
+      li = lhs.index(after: li)
+      ri = rhs.index(after: ri)
+    }
+    return li == lhs.endIndex && ri == rhs.endIndex
   }
 }
 
@@ -195,6 +298,29 @@ extension Link: Collection {
 
     public var _debugCopyTimes: Int {
       getCopyTimes(self.copyTimesHolder)
+    }
+  }
+
+  extension Link.Node: CustomDebugStringConvertible {
+    public var debugDescription: String {
+      " -> \(value)\(next?.debugDescription ?? "")"
+    }
+  }
+
+  extension Link.Index: CustomDebugStringConvertible {
+    public var debugDescription: String {
+      guard let head = head else {
+        return "Link.Index<bad index>"
+      }
+      if let currentNode = currentNode {
+        if ObjectIdentifier(head) == ObjectIdentifier(currentNode) {
+          return "Link.Index<\(ObjectIdentifier(head)):startIndex>"
+        } else {
+          return "Link.Index<\(ObjectIdentifier(head)):\(currentNode.debugDescription)>"
+        }
+      } else {
+        return "Link.Index<\(ObjectIdentifier(head)):endIndex>"
+      }
     }
   }
 

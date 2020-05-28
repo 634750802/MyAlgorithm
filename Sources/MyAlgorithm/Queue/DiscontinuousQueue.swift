@@ -14,12 +14,10 @@ public struct DiscontinuousQueue<Element, S: Collection>: BatchEnqueuedQueue whe
   }
 
   mutating public func enqueue(_ elements: S) {
-    link.ensureCopyOnWrite()
     link.append(.init(elements))
   }
 
   mutating public func dequeue() -> Element? {
-    link.ensureCopyOnWrite()
     if let headNode = link.first {
       defer {
         headNode.currentIndex = headNode.elements.index(after: headNode.currentIndex)
