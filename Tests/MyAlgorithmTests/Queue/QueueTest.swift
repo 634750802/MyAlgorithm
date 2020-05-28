@@ -59,10 +59,15 @@ final class QueueTest: XCTestCase {
 
   func testCopyOnWrite() {
     var queue = makeData()
-    let queue2 = queue
+    var queue2 = queue
     queue.enqueue(1)
     XCTAssertNotEqual(queue.count, queue2.count)
     XCTAssertTrue(queue._debugIsLinkNodesGood, "\(queue) is not good")
+    XCTAssertEqual(queue._debugLinkCopyTimes, 1)
+    XCTAssertEqual(queue2._debugLinkCopyTimes, 1)
+
+    _ = queue2.dequeue()
+    XCTAssertTrue(queue2._debugIsLinkNodesGood, "\(queue2) is not good")
     XCTAssertEqual(queue._debugLinkCopyTimes, 1)
     XCTAssertEqual(queue2._debugLinkCopyTimes, 1)
   }

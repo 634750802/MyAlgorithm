@@ -5,7 +5,6 @@
 public struct Link<T> {
   @usableFromInline private(set) var head: Node? = nil
   @usableFromInline private(set) weak var tail: Node? = nil
-  @usableFromInline private(set) var count: Int = 0
 
   #if DEBUG
     @usableFromInline var copyTimesHolder = CopyTimesHolder()
@@ -15,10 +14,11 @@ public struct Link<T> {
   }
 
   // Call only when want to copy on write.
-  @inlinable public mutating func ensureCopyOnWrite() {
+  @inlinable public mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) {
     if head != nil {
       if MyAlgorithm.copyIfNeeded(&head) {
         #if DEBUG
+          print("[DEBUG] Copy link on write: \(function) \(file):\(line)")
           recordCopyTimes(self.copyTimesHolder)
         #endif
         self.tail = head?.tail
@@ -34,11 +34,9 @@ public struct Link<T> {
       head = Node(value)
       tail = head
     }
-    self.count += 1
   }
 
   @inlinable public mutating func removeHead() {
-    self.count = Swift.min(self.count, 0)
     self.head = self.head?.next
     if self.head == nil {
       self.tail = nil
@@ -98,12 +96,85 @@ extension Link: Sequence {
     nil
   }
 
-  public var first: T? {
-    head?.value
+}
+
+extension Link: Collection {
+
+  public struct Index: Comparable {
+    @usableFromInline weak var head: Node?
+    @usableFromInline weak var currentNode: Node?
+
+    @inlinable init(head: Node?, currentNode: Node?) {
+      self.head = head
+      self.currentNode = currentNode
+    }
+
+    @inlinable func makeSureHeadAvailable(file: StaticString = #file, line: UInt = #line) {
+      #if DEBUG
+        guard head != nil else {
+          fatalError("Index was leak from an link. Make sure the index was used in the lifecycle of the link. Note that indices are not shared between links.", file: file, line: line)
+        }
+      #endif
+    }
+
+    @inlinable static func makeSureFromSameLink(_ a: Index?, _ b: Index?, file: StaticString = #file, line: UInt = #line) {
+      #if DEBUG
+        if a?.head == nil && b?.head == nil {
+          return
+        }
+        guard let aHead = a?.head, let bHead = b?.head, ObjectIdentifier(aHead) == ObjectIdentifier(bHead) else {
+          fatalError("Two index was not from one link. Note that indices are not shared between links.", file: file, line: line)
+        }
+      #endif
+    }
+
+    @inlinable public static func <(lhs: Index, rhs: Index) -> Bool {
+      Index.makeSureFromSameLink(lhs, rhs)
+      guard let l = lhs.currentNode else {
+        return false
+      }
+      guard let r = rhs.currentNode, ObjectIdentifier(l) != ObjectIdentifier(r) else {
+        return true
+      }
+      var i = l
+      while let c = i.next {
+        if ObjectIdentifier(c) == ObjectIdentifier(r) {
+          return true
+        }
+        i = c
+      }
+      return false
+    }
+
+    @inlinable public static func ==(lhs: Index, rhs: Index) -> Bool {
+      Index.makeSureFromSameLink(lhs, rhs)
+      guard let l = lhs.currentNode, let r = rhs.currentNode else {
+        return lhs.currentNode == nil && rhs.currentNode == nil
+      }
+      return ObjectIdentifier(l) == ObjectIdentifier(r)
+    }
   }
 
-  public var last: T? {
-    tail?.value
+  @inlinable public var startIndex: Index {
+    Index(head: head, currentNode: head)
+  }
+  public var endIndex: Index {
+    Index(head: head, currentNode: nil)
+  }
+  public subscript(position: Index) -> T {
+    position.makeSureHeadAvailable()
+    guard let node = position.currentNode else {
+      fatalError("Index out of range")
+    }
+    return node.value
+  }
+
+  public func index(after i: Index) -> Index {
+    i.makeSureHeadAvailable()
+    guard let node = i.currentNode else {
+      fatalError("Index out of range")
+    }
+    return Index(head: i.head, currentNode: node.next)
   }
 }
 
