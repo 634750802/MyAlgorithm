@@ -8,17 +8,21 @@ public protocol COWSafeType: class {
 
 @usableFromInline final class CopyTimesHolder {}
 
-@usableFromInline var copyTimes: [ObjectIdentifier: Int] = [:]
+#if DEBUG
 
-@inlinable func recordCopyTimes<T: AnyObject>(_ object: T) {
-  let id = ObjectIdentifier(object)
-  copyTimes[id] = (copyTimes[id] ?? 0) + 1
-}
+  @usableFromInline var copyTimes: [ObjectIdentifier: Int] = [:]
 
-@inlinable func getCopyTimes<T: AnyObject>(_ object: T) -> Int {
-  let id = ObjectIdentifier(object)
-  return copyTimes[id] ?? 0
-}
+  @inlinable func recordCopyTimes<T: AnyObject>(_ object: T) {
+    let id = ObjectIdentifier(object)
+    copyTimes[id] = (copyTimes[id] ?? 0) + 1
+  }
+
+  @inlinable func getCopyTimes<T: AnyObject>(_ object: T) -> Int {
+    let id = ObjectIdentifier(object)
+    return copyTimes[id] ?? 0
+  }
+
+#endif
 
 @inlinable public func copyIfNeeded<T: COWSafeType>(_ some: inout T?) -> Bool {
   if !isKnownUniquelyReferenced(&some) {

@@ -259,6 +259,7 @@ extension Link: MutableCollection {
   }
 
   mutating public func swapAt(_ i: Index, _ j: Index) {
+    // TODO: Use pointer
     Index.makeSureFromSameLink(i, j)
     swap(&i.currentNode!.value, &j.currentNode!.value)
   }
