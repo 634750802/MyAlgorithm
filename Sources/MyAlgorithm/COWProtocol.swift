@@ -9,12 +9,11 @@ public protocol COWSafeType: class {
 }
 
 extension COWSafeType where CopyContext == Void {
-  public static func makeCopyContext() -> Void {}
+  @inlinable public static func makeCopyContext() -> Void {}
 }
 
-@usableFromInline final class CopyTimesHolder {}
-
 #if DEBUG
+  @usableFromInline final class CopyTimesHolder {}
 
   @usableFromInline var copyTimes: [ObjectIdentifier: Int] = [:]
 

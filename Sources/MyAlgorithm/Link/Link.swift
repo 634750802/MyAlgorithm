@@ -2,7 +2,11 @@
 // Created by 高林杰 on 2020/5/28.
 //
 
+// TODO: Prove it!
+fileprivate let defaultCopySize: Int = MemoryLayout<Int>.size + MemoryLayout<Int>.size
+
 public struct Link<T> {
+  fileprivate let contentMemoryLayoutSize = MemoryLayout<T>.size
   @usableFromInline private(set) var head: Node? = nil
   @usableFromInline private(set) weak var tail: Node? = nil
 
@@ -20,6 +24,7 @@ public struct Link<T> {
       var tailHolder: Node? = nil
       if (MyAlgorithm.copyIfNeeded(&head) { (tail) in tailHolder = tail }) {
         #if DEBUG
+          print("[DEBUG] Copy link on write: \(function) \(file):\(line)")
           recordCopyTimes(self.copyTimesHolder)
         #endif
         self.tail = tailHolder
@@ -118,10 +123,12 @@ extension Link: Collection {
   public struct Index: Comparable {
     @usableFromInline weak var head: Node?
     @usableFromInline weak var currentNode: Node?
+    @usableFromInline weak var previousNode: Node?
 
-    @inlinable init(head: Node?, currentNode: Node?) {
+    @inlinable init(head: Node?, currentNode: Node?, previousNode: Node?) {
       self.head = head
       self.currentNode = currentNode
+      self.previousNode = previousNode
     }
 
     @inlinable func makeSureHeadAvailable(file: StaticString = #file, line: UInt = #line) {
@@ -174,10 +181,10 @@ extension Link: Collection {
   }
 
   @inlinable public var startIndex: Index {
-    Index(head: head, currentNode: head)
+    Index(head: head, currentNode: head, previousNode: nil)
   }
   public var endIndex: Index {
-    Index(head: head, currentNode: nil)
+    Index(head: head, currentNode: nil, previousNode: tail)
   }
   public subscript(position: Index) -> T {
     get {
@@ -188,6 +195,7 @@ extension Link: Collection {
       return node.value
     }
     set {
+      // HACK
       position.makeSureHeadAvailable()
       let oldValue = position.currentNode!.value
       position.currentNode!.value = newValue
@@ -202,12 +210,23 @@ extension Link: Collection {
     guard let node = i.currentNode else {
       fatalError("Index out of range")
     }
-    return Index(head: i.head, currentNode: node.next)
+    return Index(head: i.head, currentNode: node.next, previousNode: node)
   }
 
 }
 
 extension Link: MutableCollection {
+  @usableFromInline typealias RawLink = (head: Node?, tail: Node?)
+
+  @inlinable static func rawAppend(_ link: inout RawLink, _ node: Node) {
+    if link.head == nil {
+      link.head = node
+      link.tail = node
+    } else {
+      link.tail!.next = node
+      link.tail = node
+    }
+  }
 
   public mutating func partition(by belongsInSecondPartition: (T) throws -> Bool) rethrows -> Index {
     if isEmpty {
@@ -215,43 +234,36 @@ extension Link: MutableCollection {
     }
     ensureCopyOnWrite()
 
-    var firstPartitionHead: Node? = nil
-    var firstPartitionTail: Node? = nil
-    var secondPartitionHead: Node? = nil
-    var secondPartitionTail: Node? = nil
+    var firstPartition: RawLink = (nil, nil)
+    var secondPartition: RawLink = (nil, nil)
 
     var current = head
     while let node = current {
       if try belongsInSecondPartition(node.value) {
-        if secondPartitionHead == nil {
-          secondPartitionHead = node
-          secondPartitionTail = node
-        } else {
-          secondPartitionTail!.next = node
-          secondPartitionTail = node
-        }
+        Link.rawAppend(&secondPartition, node)
       } else {
-        if firstPartitionHead == nil {
-          firstPartitionHead = node
-          firstPartitionTail = node
-        } else {
-          firstPartitionTail!.next = node
-          firstPartitionTail = node
-        }
+        Link.rawAppend(&firstPartition, node)
       }
       current = node.next
       node.next = nil
     }
-    firstPartitionTail?.next = secondPartitionHead
-    head = firstPartitionHead ?? secondPartitionHead!
-    tail = secondPartitionTail ?? firstPartitionTail!
-    return Index(head: head, currentNode: secondPartitionHead)
+    firstPartition.tail?.next = secondPartition.head
+    head = firstPartition.head ?? secondPartition.head
+    tail = secondPartition.tail ?? firstPartition.tail
+    return Index(head: head, currentNode: secondPartition.head, previousNode: nil)
   }
 
   mutating public func swapAt(_ i: Index, _ j: Index) {
-    // TODO: Use pointer
     Index.makeSureFromSameLink(i, j)
-    swap(&i.currentNode!.value, &j.currentNode!.value)
+    if contentMemoryLayoutSize <= defaultCopySize {
+      swap(&i.currentNode!.value, &j.currentNode!.value)
+    } else {
+      // TODO: Use pointer
+      #if DEBUG
+        print("[WARN] Unsupported big node swap for link.")
+      #endif
+      swap(&i.currentNode!.value, &j.currentNode!.value)
+    }
   }
 
   public func withContiguousMutableStorageIfAvailable<R>(_ body: (inout UnsafeMutableBufferPointer<T>) throws -> R) rethrows -> R? { nil }
