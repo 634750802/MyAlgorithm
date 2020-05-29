@@ -41,41 +41,49 @@ public struct Heap<T> {
 
   @inlinable mutating func refactorB2T() {
     var index = storage.index(before: storage.endIndex)
-    while index != storage.startIndex {
-      if comparator(storage[index], storage[index >> 1]) {
-        storage.swapAt(index, index >> 1)
-        index = index >> 1
+    while index > storage.startIndex {
+      let parent = (index - 1) >> 1
+      if !comparator(storage[parent], storage[index]) {
+        storage.swapAt(index, parent)
+        index = parent
       } else {
         break
       }
     }
+    #if DEBUG
+      _debugIsOk()
+    #endif
   }
 
   @inlinable mutating func refactorT2B() {
     var index = storage.startIndex
     while index < storage.endIndex {
-      let then = ((index + 1) << 1) - 1
+      let leftIndex = (index << 1) + 1
+      let rightIndex = leftIndex + 1
       let value = storage[index]
 
-      guard then < storage.endIndex else {
-        break
-      }
-
-      if then + 1 < storage.endIndex {
-        let a = storage[then]
-        let b = storage[then + 1]
-        if comparator(a, value) {
-          if comparator(a, b) {
-            storage.swapAt(index, then)
+      if rightIndex < storage.endIndex {
+        let left = storage[leftIndex]
+        let right = storage[rightIndex]
+        if comparator(left, right) {
+          if !comparator(value, left) {
+            storage.swapAt(index, leftIndex)
+            index = leftIndex
           } else {
-            storage.swapAt(index, then + 1)
+            break
           }
         } else {
-          break
+          if !comparator(value, right) {
+            storage.swapAt(rightIndex, index)
+            index = rightIndex
+          } else {
+            break
+          }
         }
-      } else if then < storage.endIndex {
-        if comparator(storage[then], storage[index]) {
-          index = then
+      } else if leftIndex < storage.endIndex {
+        if !comparator(value, storage[leftIndex]) {
+          storage.swapAt(index, leftIndex)
+          index = leftIndex
         } else {
           break
         }
@@ -83,11 +91,69 @@ public struct Heap<T> {
         break
       }
     }
+    #if DEBUG
+      _debugIsOk()
+    #endif
   }
 }
 
 extension Heap where T: Comparable {
   @inlinable public init() {
     self.init(comparator: <)
+  }
+}
+
+extension Heap {
+  #if DEBUG
+
+  #endif
+}
+
+extension Heap {
+  @inlinable public func _debugIsOk(file: StaticString = #file, line: UInt = #line) {
+    for i in storage.startIndex..<storage.endIndex {
+      let left = (i << 1) + 1
+      let right = left + 1
+      if left < storage.endIndex {
+        assert(!comparator(storage[left], storage[i]), file: file, line: line)
+      } else {
+        break
+      }
+      if right < storage.endIndex {
+        assert(!comparator(storage[right], storage[i]), file: file, line: line)
+      }
+    }
+  }
+}
+
+extension Sequence where Element: Comparable {
+  func max(count: Int) -> [Element] {
+    var iter = makeIterator()
+    var heap = Heap<Element>(comparator: >)
+    while let element = iter.next() {
+      heap.push(element)
+    }
+    var result: [Element] = []
+    let n = Swift.min(count, heap.count)
+    result.reserveCapacity(n)
+    for _ in 0..<n {
+      result.append(heap.pop()!)
+    }
+    return result
+  }
+
+  func min(count: Int) -> [Element] {
+    var iter = makeIterator()
+    var heap = Heap<Element>(comparator: <)
+    while let element = iter.next() {
+      heap.push(element)
+    }
+    var result: [Element] = []
+    let n = Swift.min(count, heap.count)
+    result.reserveCapacity(n)
+    for _ in 0..<n {
+      result.append(heap.pop()!)
+    }
+    return result
   }
 }
