@@ -86,6 +86,19 @@ final class LinkTest: XCTestCase {
     XCTAssertNotEqual(makeData(12), makeUnsortedData())
   }
 
+  func testCollection() {
+    let data = makeUnsortedData()
+
+    var index = data.startIndex
+    var it = data.makeIterator()
+    while index != data.endIndex, let element = it.next() {
+      XCTAssertEqual(element, data[index])
+      index = data.index(after: index)
+    }
+    XCTAssertEqual(index, data.endIndex)
+    XCTAssertEqual(it.next(), nil)
+  }
+
   func testCopyOnWrite() {
     var link = makeData(10)
     XCTAssertEqual(link._debugCopyTimes, 0)
@@ -107,7 +120,10 @@ final class LinkTest: XCTestCase {
   static var allTests = [
     "testInit": testInit,
     "testInsert": testInsert,
+    "testSort": testSort,
     "testMutable": testMutable,
+    "testEquatable": testEquatable,
+    "testCollection": testCollection,
     "testCopyOnWrite": testCopyOnWrite
   ]
 }
