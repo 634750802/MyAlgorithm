@@ -13,8 +13,7 @@ public protocol Queue {
 
 
 public protocol BatchEnqueuedQueue: Queue {
-  associatedtype S: Collection where S.Element == Self.Element
 
-  mutating func enqueue(_ elements: S)
+  mutating func enqueue<S: Collection>(_ elements: S) where S.Element == Element
 }
 

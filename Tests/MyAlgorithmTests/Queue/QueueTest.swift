@@ -8,8 +8,8 @@ import XCTest
 
 final class QueueTest: XCTestCase {
 
-  private func makeData() -> DiscontinuousQueue<Int, ArraySlice<Int>> {
-    var queue = DiscontinuousQueue(type: ArraySlice<Int>.self)
+  private func makeData() -> DiscontinuousQueue<Int> {
+    var queue = DiscontinuousQueue<Int>()
     XCTAssertTrue(queue._debugIsLinkNodesGood, "\(queue) is not good")
     queue.enqueue(1)
     XCTAssertEqual(queue._debugBlockCounts, 1)
@@ -28,7 +28,7 @@ final class QueueTest: XCTestCase {
   }
 
   func testInit() {
-    let queue = DiscontinuousQueue(type: ArraySlice<Int>.self)
+    let queue = DiscontinuousQueue<Int>()
     XCTAssertEqual(queue.count, 0)
     XCTAssertTrue(queue.isEmpty)
     XCTAssertTrue(queue._debugIsLinkNodesGood, "\(queue) is not good")

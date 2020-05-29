@@ -2,70 +2,50 @@
 // Created by 高林杰 on 2020/5/28.
 //
 
-public struct DiscontinuousQueue<Element, S: Collection>: BatchEnqueuedQueue where S.Element == Element {
-
+public struct DiscontinuousQueue<Element>: BatchEnqueuedQueue {
   private var link = Link<Node>()
 
-  public init(type: S.Type = S.self) {
-  }
-
-  mutating public func enqueue(_ element: Element) {
-    fatalError("Unsupported operation. Support it by provided your own extension for \(S.self).")
-  }
-
-  mutating public func enqueue(_ elements: S) {
+  public mutating func enqueue<S: Collection>(_ elements: S) where S.Element == Element {
     link.append(.init(elements))
   }
 
-  mutating public func dequeue() -> Element? {
-    if let headNode = link.first {
+  public mutating func enqueue(_ element: Element) {
+    link.append(.init(CollectionOfOne(element)))
+  }
+
+  public mutating func dequeue() -> Element? {
+    weak var head = link.head
+    if head == nil {
+      return nil
+    } else {
       defer {
-        headNode.currentIndex = headNode.elements.index(after: headNode.currentIndex)
-        if headNode.currentIndex == headNode.elements.endIndex {
-          link.removeHead()
+        head!.value.index = head!.value.elements.index(after: head!.value.index)
+        if head!.value.index == head!.value.elements.endIndex {
+          link.removeFirst()
         }
       }
-      return headNode.elements[headNode.currentIndex]
-    } else {
-      return nil
+      return head!.value.elements[head!.value.index]
     }
   }
 
-  public var isEmpty: Bool { link.first == nil }
-  public var count: Int { link.reduce(0) { $0 + $1.elements.distance(from: $1.currentIndex, to: $1.elements.endIndex) } }
-}
-
-public extension DiscontinuousQueue where S == ArraySlice<Element> {
-  mutating func enqueue(_ element: Element) {
-    self.enqueue(ArraySlice(repeating: element, count: 1))
+  public var isEmpty: Bool {
+    link.isEmpty
   }
-
-  mutating func enqueue(_ elements: [Element]) {
-    self.enqueue(ArraySlice(elements))
-  }
-}
-
-public extension DiscontinuousQueue where S == Array<Element> {
-  mutating func enqueue(_ element: Element) {
-    self.enqueue([element])
-  }
-
-  mutating func enqueue(_ elements: ArraySlice<Element>) {
-    self.enqueue(Array(elements))
+  public var count: Int {
+    link.reduce(0) { $0 + $1.elements.distance(from: $1.index, to: $1.elements.endIndex) }
   }
 }
 
 extension DiscontinuousQueue {
-  final class Node {
-    var elements: LazySequence<S>
-    var currentIndex: LazySequence<S>.Index
+  struct Node {
+    var elements: LazySequence<AnyCollection<Element>>
+    var index: LazySequence<AnyCollection<Element>>.Index
 
-    init(_ elements: S) {
-      self.elements = elements.lazy
-      currentIndex = self.elements.startIndex
+    init<S: Collection>(_ elements: S) where S.Element == Element {
+      self.elements = AnyCollection(elements).lazy
+      self.index = self.elements.startIndex
     }
   }
-
 }
 
 #if DEBUG
@@ -91,7 +71,7 @@ extension DiscontinuousQueue {
 
   extension DiscontinuousQueue.Node: CustomDebugStringConvertible {
     public var debugDescription: String {
-      "(count: \(elements.count), currentIndex: \(currentIndex))"
+      "(count: \(elements.count), currentIndex: \(index))"
     }
 
   }
