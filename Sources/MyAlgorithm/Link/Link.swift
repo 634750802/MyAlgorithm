@@ -195,26 +195,6 @@ extension Link: Collection {
     return Index(head: i.head, currentNode: node.next)
   }
 
-  public func index(before i: Index) -> Index {
-    #if DEBUG
-      print("[WARN] Avoid to use List.\(#function).")
-    #endif
-    i.makeSureHeadAvailable()
-    guard i.currentNode == nil || ObjectIdentifier(head!) != ObjectIdentifier(i.currentNode!) else {
-      fatalError("Index out of range")
-    }
-    var c = i.head!
-    if i.currentNode == nil {
-      while c.next != nil {
-        c = c.next!
-      }
-    } else {
-      while ObjectIdentifier(c.next!) != ObjectIdentifier(i.currentNode!) {
-        c = c.next!
-      }
-    }
-    return Index(head: head, currentNode: c)
-  }
 }
 
 extension Link: MutableCollection {
