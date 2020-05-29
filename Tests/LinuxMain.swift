@@ -3,6 +3,7 @@ import XCTest
 import MyAlgorithmTests
 
 var tests = [XCTestCaseEntry]()
-tests += QueueTests.allTests()
-tests += LinkTests.allTests()
+tests += QueueTest.allTests()
+tests += LinkTest.allTests()
+tests += HeapTest.allTests()
 XCTMain(tests)
