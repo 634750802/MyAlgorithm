@@ -2,12 +2,41 @@
 // Created by 高林杰 on 2020/5/29.
 //
 
-public class BinaryTree<T> {
+public struct BinaryTree<T> {
   @usableFromInline var rootNode: Node?
 
   @inlinable public var root: NodeRef {
-    NodeRef(node: rootNode)
+    mutating get {
+      if let rootNode = rootNode {
+        return NodeRef(node: rootNode)
+      } else {
+        return NodeRef(tree: &self)
+      }
+    }
+    set {
+      if let node = newValue.type.referencedNode {
+        self.rootNode = node
+      } else {
+        self.rootNode = nil
+      }
+    }
   }
+
+  @inlinable public var immutableRoot: ImmutableNodeRef {
+    if let rootNode = rootNode {
+      return ImmutableNodeRef(node: rootNode)
+    } else {
+      return ImmutableNodeRef(tree: self)
+    }
+  }
+
+  public func copy() -> Self {
+    var newTree = self
+    var void: Void = ()
+    newTree.rootNode = rootNode?.copy(&void)
+    return newTree
+  }
+
 }
 
 extension BinaryTree {
@@ -53,71 +82,256 @@ extension BinaryTree {
     }
   }
 
-  public struct NodeRef {
-    @usableFromInline weak var root: Node?
-    @usableFromInline weak var node: Node?
+  public struct ImmutableNodeRef {
+    @usableFromInline var type: ImmutableRefType
 
-    @usableFromInline init(node: Node?) {
-      self.node = node
+    @usableFromInline init(tree: BinaryTree) {
+      self.type = .root(withUnsafePointer(to: tree) { $0 })
     }
 
-    subscript<S: Sequence>(_ sequence: S) -> NodeRef where S.Element == WritableKeyPath<NodeRef, NodeRef> {
-      get {
-        var ref = self
-        var iter = sequence.makeIterator()
-        while let keyPath = iter.next() {
-          ref = ref[keyPath: keyPath]
-        }
-        return ref
+    @usableFromInline init(node: Node) {
+      self.type = .node(node)
+    }
+
+    @inlinable public var value: T {
+      switch type {
+        case .node(let node):
+          return node.value
+        case .root(let pointer):
+          return pointer.pointee.rootNode!.value
       }
-      set {
-        var ref = self
-        var iter = sequence.makeIterator()
-        while let keyPath = iter.next() {
-          ref = ref[keyPath: keyPath]
-        }
-        let parent = ref.parent
-        if parent.left.node == ref.node {
-          ref.node?.tryDetachFromParent()
-          parent.node?.left = newValue.node
-        } else {
-          ref.node?.tryDetachFromParent()
-          parent.node?.right = newValue.node
-        }
+    }
+
+    @inlinable public var parent: ImmutableNodeRef {
+      switch type {
+        case .node(let node):
+          if let parent = node.parent {
+            return ImmutableNodeRef(node: parent)
+          } else {
+            return nil!
+          }
+        case .root:
+          return nil!
       }
+    }
+
+    @inlinable public var hasLeft: Bool {
+      type.referencedNode?.left != nil
+    }
+
+    @inlinable public var left: ImmutableNodeRef {
+      if let left = type.referencedNode?.left {
+        return ImmutableNodeRef(node: left)
+      } else {
+        return nil!
+      }
+    }
+
+    @inlinable public var hasRight: Bool {
+      type.referencedNode?.right != nil
+    }
+
+    @inlinable public var right: ImmutableNodeRef {
+      if let right = type.referencedNode?.right {
+        return ImmutableNodeRef(node: right)
+      } else {
+        return nil!
+      }
+    }
+  }
+
+  public struct NodeRef {
+    @usableFromInline var type: RefType
+
+    public init(_ value: T) {
+      self.type = .node(.init(value))
+    }
+
+    @usableFromInline init(tree: inout BinaryTree) {
+      self.type = .root(withUnsafeMutablePointer(to: &tree) { $0 })
+    }
+
+    @usableFromInline init(node: Node) {
+      self.type = .node(node)
+    }
+
+    @usableFromInline init(parentNode: Node, leaf: WritableKeyPath<Node, Node?>) {
+      self.type = .visualNode(parentNode, leaf)
     }
 
     @inlinable public var value: T {
       get {
-        node!.value
+        switch type {
+          case .node(let node):
+            return node.value
+          case .visualNode(let node, let leaf):
+            return node[keyPath: leaf]!.value
+          case .root(let pointer):
+            return pointer.pointee.rootNode!.value
+        }
       }
-      set {
-        node!.value = newValue
+      nonmutating set {
+        switch type {
+          case .node(let node):
+            node.value = newValue
+          case .visualNode(var parentNode, let leaf):
+            if let node = parentNode[keyPath: leaf] {
+              node.value = newValue
+            } else {
+              parentNode[keyPath: leaf] = Node(newValue)
+            }
+          case .root(let pointer):
+            pointer.pointee.rootNode = Node(newValue)
+        }
       }
     }
 
     @inlinable public var parent: NodeRef {
-      NodeRef(node: node?.parent)
+      switch type {
+        case .node(let node):
+          if let parent = node.parent {
+            return NodeRef(node: parent)
+          } else {
+            return NodeRef(parentNode: node, leaf: \.parent)
+          }
+        case .visualNode(let node, let leaf):
+          if leaf == \.parent {
+            if let parent = node.parent {
+              return NodeRef(node: parent)
+            } else {
+              return nil!
+            }
+          } else {
+            return NodeRef(node: node)
+          }
+        case .root:
+          return nil!
+      }
+    }
+
+    @inlinable public var hasLeft: Bool {
+      type.referencedNode?.left != nil
     }
 
     @inlinable public var left: NodeRef {
-      get {
-        NodeRef(node: node?.left)
-      }
-      set {
-        node!.attach(left: newValue.node!)
+      if let left = type.referencedNode?.left {
+        return NodeRef(node: left)
+      } else {
+        return NodeRef(parentNode: type.referencedNode!, leaf: \.left)
       }
     }
 
+    @inlinable public var hasRight: Bool {
+      type.referencedNode?.right != nil
+    }
+
     @inlinable public var right: NodeRef {
-      get {
-        NodeRef(node: node?.right)
+      if let right = type.referencedNode?.right {
+        return NodeRef(node: right)
+      } else {
+        return NodeRef(parentNode: type.referencedNode!, leaf: \.right)
       }
-      set {
-        node!.attach(right: newValue.node!)
+    }
+
+    @inlinable public func isChildOrEqual(of ref: NodeRef) -> Bool {
+
+      guard let node = self.type.referencedNode, let refNode = ref.type.referencedNode else {
+        return false
+      }
+      var parent = node.parent
+      while let parentNode = parent {
+        if parentNode == refNode {
+          return true
+        }
+        parent = parent?.parent
+      }
+      return false
+    }
+  }
+
+  @usableFromInline enum ImmutableRefType {
+    case root(UnsafePointer<BinaryTree>)
+    case node(Node)
+
+    @usableFromInline var referencedNode: Node? {
+      switch self {
+        case .node(let node):
+          return node
+        case .root(let pointer):
+          return pointer.pointee.rootNode
       }
     }
   }
+
+  @usableFromInline enum RefType {
+    case root(UnsafeMutablePointer<BinaryTree>)
+    case node(Node)
+    case visualNode(Node, WritableKeyPath<Node, Node?>)
+
+    @usableFromInline var referencedNode: Node? {
+      switch self {
+        case .node(let node):
+          return node
+        case .visualNode(let node, let leaf):
+          return node[keyPath: leaf]
+        case .root(let pointer):
+          return pointer.pointee.rootNode
+      }
+    }
+  }
+}
+
+extension BinaryTree {
+  @usableFromInline func traversalPre(node: Node, consumer: (T) -> Void) {
+    consumer(node.value)
+    if let left = node.left {
+      traversalPre(node: left, consumer: consumer)
+    }
+    if let right = node.right {
+      traversalPre(node: right, consumer: consumer)
+    }
+  }
+
+  @usableFromInline func traversalIn(node: Node, consumer: (T) -> Void) {
+    if let left = node.left {
+      traversalIn(node: left, consumer: consumer)
+    }
+    consumer(node.value)
+    if let right = node.right {
+      traversalIn(node: right, consumer: consumer)
+    }
+  }
+
+  @usableFromInline func traversalPost(node: Node, consumer: (T) -> Void) {
+    if let left = node.left {
+      traversalPost(node: left, consumer: consumer)
+    }
+    if let right = node.right {
+      traversalPost(node: right, consumer: consumer)
+    }
+    consumer(node.value)
+  }
+
+  @inlinable public func traversal(order: TreeTraversalOrder = .pre, consumer: (T) -> Void) {
+    guard let node = rootNode else {
+      return
+    }
+    switch order {
+      case .pre:
+        traversalPre(node: node, consumer: consumer)
+      case .in:
+        traversalIn(node: node, consumer: consumer)
+      case .post:
+        traversalPost(node: node, consumer: consumer)
+    }
+  }
+}
+
+
+public enum TreeTraversalOrder {
+  case pre
+  case `in`
+  case post
 }
 
 
@@ -135,13 +349,13 @@ extension BinaryTree.Node: COWSafeType {
 
 extension BinaryTree.NodeRef: Equatable where T: Equatable {
   public static func ==(lhs: BinaryTree.NodeRef, rhs: BinaryTree.NodeRef) -> Bool {
-    lhs.node?.value == rhs.node?.value
+    lhs.type.referencedNode?.value == rhs.type.referencedNode?.value
   }
 }
 
 extension BinaryTree.NodeRef: Comparable where T: Comparable {
   public static func <(lhs: BinaryTree.NodeRef, rhs: BinaryTree.NodeRef) -> Bool {
-    if let lv = lhs.node?.value, let rv = rhs.node?.value {
+    if let lv = lhs.type.referencedNode?.value, let rv = rhs.type.referencedNode?.value {
       return lv < rv
     } else {
       return false
