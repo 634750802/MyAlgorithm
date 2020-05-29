@@ -17,12 +17,12 @@ public struct Link<T> {
   @discardableResult
   @inlinable public mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) -> Bool {
     if head != nil {
-      if MyAlgorithm.copyIfNeeded(&head) {
+      var tailHolder: Node? = nil
+      if (MyAlgorithm.copyIfNeeded(&head) { (tail) in tailHolder = tail }) {
         #if DEBUG
-          print("[DEBUG] Copy link on write: \(function) \(file):\(line)")
           recordCopyTimes(self.copyTimesHolder)
         #endif
-        self.tail = head?.tail
+        self.tail = tailHolder
         return true
       }
     }
@@ -59,20 +59,30 @@ extension Link {
       self.value = value
     }
 
-    @usableFromInline var tail: Node {
-      if let next = next {
-        return next.tail
-      } else {
-        return self
-      }
-    }
   }
 }
 
 extension Link.Node: COWSafeType {
-  public func copy() -> Self {
-    let newNode = Self.init(((value as? COWSafeType)?.copy() as? T) ?? value)
-    newNode.next = self.next?.copy()
+  public class func makeCopyContext() -> Link<T>.Node? { nil }
+
+  @usableFromInline func copy(_ tail: inout Link<T>.Node?) -> Self {
+    let newNode = Self.init(value)
+    newNode.next = self.next?.copy(&tail)
+    if self.next != nil {
+      tail = newNode
+    }
+    return newNode
+  }
+}
+
+extension Link.Node where T: COWSafeType {
+  @usableFromInline func copy(_ tail: inout Link<T>.Node?) -> Self {
+    var valueContext = T.makeCopyContext()
+    let newNode = Self.init(value.copy(&valueContext))
+    newNode.next = self.next?.copy(&tail)
+    if self.next != nil {
+      tail = newNode
+    }
     return newNode
   }
 }
@@ -263,6 +273,16 @@ extension Link: Equatable where T: Equatable {
 }
 
 #if DEBUG
+
+  extension Link.Node {
+    @usableFromInline var tail: Link<T>.Node {
+      if let next = next {
+        return next.tail
+      } else {
+        return self
+      }
+    }
+  }
 
   extension Link: CustomDebugStringConvertible {
     public var debugDescription: String {

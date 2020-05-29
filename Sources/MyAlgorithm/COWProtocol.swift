@@ -3,7 +3,13 @@
 //
 
 public protocol COWSafeType: class {
-  func copy() -> Self
+  associatedtype CopyContext = Void
+  func copy(_ context: inout CopyContext) -> Self
+  static func makeCopyContext() -> CopyContext
+}
+
+extension COWSafeType where CopyContext == Void {
+  public static func makeCopyContext() -> Void {}
 }
 
 @usableFromInline final class CopyTimesHolder {}
@@ -24,7 +30,7 @@ public protocol COWSafeType: class {
 
 #endif
 
-@inlinable public func copyIfNeeded<T: COWSafeType>(_ some: inout T?) -> Bool {
+@inlinable public func copyIfNeeded<T: COWSafeType>(_ some: inout T?, completeHandler: ((T.CopyContext) -> Void)? = nil) -> Bool {
   if !isKnownUniquelyReferenced(&some) {
     if some != nil {
       #if DEBUG
@@ -32,7 +38,9 @@ public protocol COWSafeType: class {
           recordCopyTimes(some!)
         }
       #endif
-      some = some?.copy()
+      var context = T.makeCopyContext()
+      some = some?.copy(&context)
+      completeHandler?(context)
       return true
     } else {
       return false
