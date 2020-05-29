@@ -3,10 +3,10 @@
 //
 
 // TODO: Prove it!
-fileprivate let defaultCopySize: Int = MemoryLayout<Int>.size + MemoryLayout<Int>.size
+@usableFromInline let defaultLinkCopySize: Int = MemoryLayout<Int>.size + MemoryLayout<Int>.size
 
 public struct Link<T> {
-  fileprivate let contentMemoryLayoutSize = MemoryLayout<T>.size
+  @usableFromInline let contentMemoryLayoutSize = MemoryLayout<T>.size
   @usableFromInline private(set) var head: Node? = nil
   @usableFromInline private(set) weak var tail: Node? = nil
 
@@ -14,12 +14,12 @@ public struct Link<T> {
     @usableFromInline var copyTimesHolder = CopyTimesHolder()
   #endif
 
-  init() {
+  public init() {
   }
 
   // Call only when want to copy on write.
   @discardableResult
-  @inlinable public mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) -> Bool {
+  @inlinable mutating func ensureCopyOnWrite(function: String = #function, file: String = #file, line: Int = #line) -> Bool {
     if head != nil {
       var tailHolder: Node? = nil
       if (MyAlgorithm.copyIfNeeded(&head) { (tail) in tailHolder = tail }) {
@@ -34,30 +34,16 @@ public struct Link<T> {
     return false
   }
 
-  @inlinable public mutating func append(_ value: T) {
-    ensureCopyOnWrite()
-    if let tail = tail {
-      tail.next = Node(value)
-      self.tail = tail.next
-    } else {
-      head = Node(value)
-      tail = head
-    }
-  }
-
   @inlinable public mutating func removeHead() {
     ensureCopyOnWrite()
-    self.head = self.head?.next
-    if self.head == nil {
-      self.tail = nil
-    }
+    self.removeFirst()
   }
 
 }
 
 extension Link {
   @usableFromInline final class Node {
-    var value: T
+    @usableFromInline var value: T
     @usableFromInline var next: Node?
 
     @usableFromInline init(_ value: T) {
@@ -144,7 +130,7 @@ extension Link: Collection {
         if a?.head == nil && b?.head == nil {
           return
         }
-        guard let aHead = a?.head, let bHead = b?.head, ObjectIdentifier(aHead) == ObjectIdentifier(bHead) else {
+        guard let aHead = a?.head, let bHead = b?.head, aHead == bHead else {
           fatalError("Two index was not from one link. Note that indices are not shared between links. (\(a!), \(b!))", file: file, line: line)
         }
       #endif
@@ -158,12 +144,12 @@ extension Link: Collection {
       guard let r = rhs.currentNode else {
         return true
       }
-      guard ObjectIdentifier(l) != ObjectIdentifier(r) else {
+      guard l != r else {
         return false
       }
       var i = l
       while let c = i.next {
-        if ObjectIdentifier(c) == ObjectIdentifier(r) {
+        if c == r {
           return true
         }
         i = c
@@ -176,8 +162,27 @@ extension Link: Collection {
       guard let l = lhs.currentNode, let r = rhs.currentNode else {
         return lhs.currentNode == nil && rhs.currentNode == nil
       }
-      return ObjectIdentifier(l) == ObjectIdentifier(r)
+      return l == r
     }
+
+    @inlinable func locateSameIndex(with head: Node?) -> Index {
+      if head == self.head {
+        return self
+      }
+      #if DEBUG
+        print("[WARN] Locating index with copy on write.")
+      #endif
+      var cur = self.head
+      var locatingCur = head
+      var locationPrev: Node? = nil
+      while cur != self.currentNode {
+        cur = cur?.next
+        locationPrev = locatingCur
+        locatingCur = locatingCur?.next
+      }
+      return Index(head: head, currentNode: locatingCur, previousNode: locationPrev)
+    }
+
   }
 
   @inlinable public var startIndex: Index {
@@ -215,8 +220,113 @@ extension Link: Collection {
 
 }
 
+extension Link: RangeReplaceableCollection {
+
+  // FIXME: Optimize
+  @inlinable public mutating func replaceSubrange<C>(_ subrange: Range<Index>, with newElements: C) where C: Collection, C.Element == T {
+    if newElements.isEmpty && subrange.isEmpty {
+      return
+    }
+    var raw = Link.rawBuild(newElements)
+    if subrange.isEmpty {
+      switch (subrange.lowerBound, subrange.upperBound) {
+        case (endIndex, _): // append
+          self.ensureCopyOnWrite()
+          var cur = RawLink(head: head, tail: tail)
+          Link.rawAppend(&cur, raw)
+          head = cur.head
+          tail = cur.tail
+        case (_, startIndex): // insert at head
+          self.ensureCopyOnWrite()
+          let cur = RawLink(head: head, tail: tail)
+          Link.rawAppend(&raw, cur)
+          head = raw.head
+          tail = raw.tail
+        default: // insert at index
+          if self.ensureCopyOnWrite() {
+            #if DEBUG
+              print("[WARN] Using Link.\(#function) with copy on write is at low efficient. ")
+            #endif
+          }
+          let prevNode = subrange.lowerBound.locateSameIndex(with: self.head).previousNode
+          let nextNode = subrange.upperBound.locateSameIndex(with: self.head).currentNode
+
+          if let prevNode = prevNode {
+            prevNode.next = raw.head
+          } else {
+            head = raw.head
+          }
+
+          if let nextNode = nextNode {
+            raw.tail?.next = nextNode
+          } else {
+            tail = raw.tail
+          }
+      }
+    } else {
+      switch (subrange.lowerBound, subrange.upperBound) {
+        case (startIndex, _): // replace head n
+          ensureCopyOnWrite()
+          // remove first n
+          self.head = subrange.upperBound.locateSameIndex(with: self.head).currentNode
+
+          // insert new
+          let cur = RawLink(head: head, tail: tail)
+          Link.rawAppend(&raw, cur)
+          head = raw.head
+          tail = raw.tail
+        case (_, endIndex): // replace tail n
+          ensureCopyOnWrite()
+          // remove last n
+          self.tail = subrange.lowerBound.locateSameIndex(with: self.head).previousNode
+          self.tail?.next = nil
+
+          // append n
+          var cur = RawLink(head: head, tail: tail)
+          Link.rawAppend(&cur, raw)
+          head = cur.head
+          tail = cur.tail
+        default: // replace range
+          if self.ensureCopyOnWrite() {
+            #if DEBUG
+              print("[WARN] Using Link.\(#function) with copy on write is at low efficient. ")
+            #endif
+          }
+
+          // remove range
+          let firstTail = subrange.lowerBound.locateSameIndex(with: self.head).previousNode
+          let secondHead = subrange.upperBound.locateSameIndex(with: self.head).currentNode
+
+          // insert range
+          let prevNode = firstTail
+          let nextNode = secondHead
+
+          if let prevNode = prevNode {
+            prevNode.next = raw.head
+          } else {
+            head = raw.head
+          }
+
+          if let nextNode = nextNode {
+            raw.tail?.next = nextNode
+          } else {
+            tail = raw.tail
+          }
+      }
+    }
+  }
+}
+
 extension Link: MutableCollection {
   @usableFromInline typealias RawLink = (head: Node?, tail: Node?)
+
+  @inlinable static func rawBuild<C: Collection>(_ elements: C) -> RawLink where C.Element == T {
+    var raw: RawLink = (nil, nil)
+    for element in elements {
+      rawAppend(&raw, Node(element))
+    }
+    return raw
+  }
 
   @inlinable static func rawAppend(_ link: inout RawLink, _ node: Node) {
     if link.head == nil {
@@ -228,7 +338,27 @@ extension Link: MutableCollection {
     }
   }
 
-  public mutating func partition(by belongsInSecondPartition: (T) throws -> Bool) rethrows -> Index {
+  @inlinable static func rawAppend(_ link: inout RawLink, _ nodes: RawLink) {
+    if link.head == nil {
+      link.head = nodes.head
+      link.tail = nodes.tail
+    } else {
+      link.tail?.next = nodes.head
+      link.tail = nodes.tail ?? link.tail
+    }
+  }
+
+  @inlinable static func rawCopy(_ link: RawLink) -> RawLink {
+    var newLink: RawLink = (nil, nil)
+    let oldTail = link.tail
+    let oldTailNext = oldTail?.next
+    link.tail?.next = nil
+    newLink.head = link.head?.copy(&newLink.tail)
+    oldTail?.next = oldTailNext
+    return newLink
+  }
+
+  @inlinable public mutating func partition(by belongsInSecondPartition: (T) throws -> Bool) rethrows -> Index {
     if isEmpty {
       return endIndex
     }
@@ -253,9 +383,9 @@ extension Link: MutableCollection {
     return Index(head: head, currentNode: secondPartition.head, previousNode: nil)
   }
 
-  mutating public func swapAt(_ i: Index, _ j: Index) {
+  @inlinable mutating public func swapAt(_ i: Index, _ j: Index) {
     Index.makeSureFromSameLink(i, j)
-    if contentMemoryLayoutSize <= defaultCopySize {
+    if contentMemoryLayoutSize <= defaultLinkCopySize {
       swap(&i.currentNode!.value, &j.currentNode!.value)
     } else {
       // TODO: Use pointer
@@ -269,8 +399,14 @@ extension Link: MutableCollection {
   public func withContiguousMutableStorageIfAvailable<R>(_ body: (inout UnsafeMutableBufferPointer<T>) throws -> R) rethrows -> R? { nil }
 }
 
+extension Link.Node: Equatable {
+  @inlinable public static func ==(lhs: Link.Node, rhs: Link.Node) -> Bool {
+    ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+  }
+}
+
 extension Link: Equatable where T: Equatable {
-  public static func ==(lhs: Link<T>, rhs: Link<T>) -> Bool {
+  @inlinable public static func ==(lhs: Link<T>, rhs: Link<T>) -> Bool {
     var li = lhs.startIndex
     var ri = rhs.startIndex
     while li != lhs.endIndex && ri != rhs.endIndex {
@@ -303,7 +439,12 @@ extension Link: Equatable where T: Equatable {
 
     public var _debugIsGood: Bool {
       if let head = head, let tail = tail {
-        return ObjectIdentifier(head.tail) == ObjectIdentifier(tail)
+        if head.tail == tail {
+          return true
+        } else {
+          print("[DEBUG] Link is not good", head.tail, tail)
+          return false
+        }
       } else {
         return head == nil && tail == nil
       }
@@ -326,7 +467,7 @@ extension Link: Equatable where T: Equatable {
         return "Link.Index<bad index>"
       }
       if let currentNode = currentNode {
-        if ObjectIdentifier(head) == ObjectIdentifier(currentNode) {
+        if head == currentNode {
           return "Link.Index<\(ObjectIdentifier(head)):startIndex>"
         } else {
           return "Link.Index<\(ObjectIdentifier(head)):\(currentNode.debugDescription)>"

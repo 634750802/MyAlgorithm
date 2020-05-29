@@ -22,14 +22,15 @@ final class LinkTest: XCTestCase {
     link.append(3)
     link.append(8)
     link.append(9)
-    link.append(2)
-    link.append(5)
-    link.append(7)
+    link.insert(2, at: link.startIndex)
+    link.insert(5, at: link.startIndex)
+    link.insert(7, at: link.startIndex)
     link.append(-1)
     link.append(-9)
     link.append(-6)
     link.append(-4)
     link.append(-19)
+    XCTAssertTrue(link._debugIsGood)
     return link
   }
 
@@ -52,6 +53,60 @@ final class LinkTest: XCTestCase {
     XCTAssertEqual(link[link.index(after: link.startIndex)], 1)
     XCTAssertEqual(link[link.index(link.startIndex, offsetBy: 9)], 9)
     XCTAssertEqual(link.index(link.startIndex, offsetBy: 10), link.endIndex)
+  }
+
+  func testRemove() {
+    var link = makeData(10)
+    for i in 0..<10 {
+      XCTAssertEqual(link.removeFirst(), i)
+      XCTAssertEqual(link.count, 9 - i)
+      XCTAssertTrue(link._debugIsGood)
+    }
+
+    link = makeData(10)
+    for i in 0..<10 {
+      XCTAssertEqual(link.remove(at: link.index(link.startIndex, offsetBy: link.count - 1)), 9 - i)
+      XCTAssertEqual(link.count, 9 - i)
+      XCTAssertTrue(link._debugIsGood)
+    }
+
+    link = makeData(10)
+    let link2 = link
+    for i in 0..<10 {
+      XCTAssertEqual(link.remove(at: link.index(link.startIndex, offsetBy: link.count - 1)), 9 - i)
+      XCTAssertEqual(link.count, 9 - i)
+      XCTAssertTrue(link._debugIsGood)
+    }
+    XCTAssertEqual(getCopyTimes(link2.copyTimesHolder), 1)
+    XCTAssertNotEqual(link, link2)
+  }
+
+  func testReplace() {
+    var link: Link<Int>
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 0)..<link.index(link.startIndex, offsetBy: 2), with: [10, 10, 10])
+    XCTAssertEqual(link, Link([10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 9]))
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 1)..<link.index(link.startIndex, offsetBy: 2), with: [10, 10, 10])
+    XCTAssertEqual(link, Link([0, 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 9]))
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 2)..<link.index(link.startIndex, offsetBy: 2), with: [10, 10, 10])
+    XCTAssertEqual(link, Link([0, 1, 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 9]))
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 0)..<link.endIndex, with: [10, 10, 10])
+    XCTAssertEqual(link, Link([10, 10, 10]))
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 1)..<link.endIndex, with: [10, 10, 10])
+    XCTAssertEqual(link, Link([0, 10, 10, 10]))
+
+    link = makeData(10)
+    link.replaceSubrange(link.index(link.startIndex, offsetBy: 2)..<link.endIndex, with: [10, 10, 10])
+    XCTAssertEqual(link, Link([0, 1, 10, 10, 10]))
   }
 
   func testSort() {
@@ -99,6 +154,12 @@ final class LinkTest: XCTestCase {
     XCTAssertEqual(it.next(), nil)
   }
 
+  func testSubRange() {
+    XCTAssertEqual(Link(makeData(10).prefix(4)), Link([0, 1, 2, 3]))
+    XCTAssertEqual(Link(makeData(10).suffix(2)), Link([8, 9]))
+    XCTAssertEqual(Link(makeData(10).prefix(4).suffix(2)), Link([2, 3]))
+  }
+
   func testCopyOnWrite() {
     var link = makeData(10)
     XCTAssertEqual(link._debugCopyTimes, 0)
@@ -120,6 +181,8 @@ final class LinkTest: XCTestCase {
   static var allTests = [
     "testInit": testInit,
     "testInsert": testInsert,
+    "testRemove": testRemove,
+    "testReplace": testReplace,
     "testSort": testSort,
     "testMutable": testMutable,
     "testEquatable": testEquatable,
